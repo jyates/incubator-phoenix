@@ -19,12 +19,16 @@ package org.apache.phoenix.coprocessor;
 
 import java.io.IOException;
 
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hbase.CoprocessorEnvironment;
 import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.coprocessor.BaseRegionObserver;
 import org.apache.hadoop.hbase.coprocessor.ObserverContext;
 import org.apache.hadoop.hbase.coprocessor.RegionCoprocessorEnvironment;
 import org.apache.hadoop.hbase.regionserver.RegionScanner;
+import org.apache.phoenix.trace.util.Tracing;
 import org.apache.phoenix.util.ServerUtil;
+import org.cloudera.htrace.Span;
 
 
 abstract public class BaseScannerRegionObserver extends BaseRegionObserver {
@@ -45,6 +49,17 @@ abstract public class BaseScannerRegionObserver extends BaseRegionObserver {
     public static final String SPECIFIC_ARRAY_INDEX = "_SpecificArrayIndex";
     public static final String GROUP_BY_LIMIT = "_GroupByLimit";
 
+    /** Exposed for testing */
+    public static final String SCANNER_OPENED_TRACE_INFO = "Scanner opened on server";
+    protected Configuration rawConf;
+
+    @Override
+    public void start(CoprocessorEnvironment e) throws IOException {
+        super.start(e);
+        this.rawConf =
+                ((RegionCoprocessorEnvironment) e).getRegionServerServices().getConfiguration();
+    }
+
     /**
      * Used by logger to identify coprocessor
      */
@@ -61,10 +76,27 @@ abstract public class BaseScannerRegionObserver extends BaseRegionObserver {
      * 
      */
     @Override
-    public final RegionScanner postScannerOpen(final ObserverContext<RegionCoprocessorEnvironment> c, final Scan scan, final RegionScanner s) throws IOException {
+    public final RegionScanner postScannerOpen(
+            final ObserverContext<RegionCoprocessorEnvironment> c, final Scan scan,
+            final RegionScanner s) throws IOException {
+        // turn on tracing, if its enabled
+        final Span child = Tracing.childOnServer(scan, rawConf, SCANNER_OPENED_TRACE_INFO);
         try {
-            return doPostScannerOpen(c, scan, s);
+            final RegionScanner scanner = doPostScannerOpen(c, scan, s);
+            return new DelegateRegionScanner(scanner) {
+                @Override
+                public void close() throws IOException {
+                    if (child != null) {
+                        child.stop();
+                    }
+                    delegate.close();
+                }
+
+            };
         } catch (Throwable t) {
+            if (child != null) {
+                child.stop();
+            }
             ServerUtil.throwIOException(c.getEnvironment().getRegion().getRegionNameAsString(), t);
             return null; // impossible
         }

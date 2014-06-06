@@ -544,6 +544,11 @@
         <version>${collections.version}</version>
       </dependency>
       <dependency>
+        <groupId>commons-configuration</groupId>
+        <artifactId>commons-configuration</artifactId>
+        <version>${commons-configuration.version}</version>
+      </dependency>
+      <dependency>
         <groupId>joda-time</groupId>
         <artifactId>joda-time</artifactId>
         <version>${jodatime.version}</version>
@@ -553,13 +558,13 @@
 
   <profiles>
 
-    <!-- Profile for building against Hadoop 1. Active by default. Not used 
-      if another Hadoop profile is specified with mvn -Dhadoop.profile=foo -->
+    <!-- Profile for building against Hadoop 1. Activate using: mvn -Dhadoop.profile=1-->
     <profile>
       <id>hadoop-1</id>
       <activation>
-        <property>
-          <name>!hadoop.profile</name>
+              <property>
+          <name>hadoop.profile</name>
+          <value>1</value>
         </property>
       </activation>
       <modules>
@@ -607,6 +612,11 @@
             <version>${hbase-hadoop1.version}</version>
           </dependency>
           <dependency>
+            <groupId>org.apache.hbase</groupId>
+            <artifactId>hbase-hadoop-compat</artifactId>
+            <version>${hbase-hadoop1.version}</version>
+          </dependency>
+          <dependency>
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-core</artifactId>
             <version>${hadoop-one.version}</version>
@@ -644,13 +654,13 @@
       </dependencyManagement>
     </profile>
 
-    <!-- Profile for building against Hadoop 2. Activate using: mvn -Dhadoop.profile=2 -->
+    <!-- Profile for building against Hadoop 2.  Active by default. Not used
+      if another Hadoop profile is specified with mvn -Dhadoop.profile=foo -->
     <profile>
       <id>hadoop-2</id>
       <activation>
-        <property>
-          <name>hadoop.profile</name>
-          <value>2</value>
+              <property>
+          <name>!hadoop.profile</name>
         </property>
       </activation>
       <modules>
@@ -695,6 +705,11 @@
           <dependency>
             <groupId>org.apache.hbase</groupId>
             <artifactId>hbase-client</artifactId>
+            <version>${hbase-hadoop2.version}</version>
+          </dependency>
+          <dependency>
+            <groupId>org.apache.hbase</groupId>
+            <artifactId>hbase-hadoop-compat</artifactId>
             <version>${hbase-hadoop2.version}</version>
           </dependency>
           <dependency>

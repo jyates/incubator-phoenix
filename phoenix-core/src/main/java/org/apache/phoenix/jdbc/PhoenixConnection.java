@@ -41,7 +41,11 @@ import java.sql.Savepoint;
 import java.sql.Statement;
 import java.sql.Struct;
 import java.text.Format;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
 import java.util.concurrent.Executor;
 
 import javax.annotation.Nullable;
@@ -67,6 +71,8 @@ import org.apache.phoenix.schema.PMetaData.Pruner;
 import org.apache.phoenix.schema.PName;
 import org.apache.phoenix.schema.PTable;
 import org.apache.phoenix.schema.PTableType;
+import org.apache.phoenix.trace.TracingCompat;
+import org.apache.phoenix.trace.util.Tracing;
 import org.apache.phoenix.util.DateUtil;
 import org.apache.phoenix.util.JDBCUtil;
 import org.apache.phoenix.util.NumberUtil;
@@ -75,6 +81,8 @@ import org.apache.phoenix.util.PropertiesUtil;
 import org.apache.phoenix.util.ReadOnlyProps;
 import org.apache.phoenix.util.SQLCloseable;
 import org.apache.phoenix.util.SQLCloseables;
+import org.cloudera.htrace.Sampler;
+import org.cloudera.htrace.Trace;
 
 import com.google.common.base.Objects;
 import com.google.common.base.Strings;
@@ -110,6 +118,7 @@ public class PhoenixConnection implements Connection, org.apache.phoenix.jdbc.Jd
     private final String datePattern;
     
     private boolean isClosed = false;
+    private Sampler<?> sampler;
     
     private static Properties newPropsWithSCN(long scn, Properties props) {
         props = new Properties(props);
@@ -189,6 +198,17 @@ public class PhoenixConnection implements Connection, org.apache.phoenix.jdbc.Jd
         });
         this.mutationState = new MutationState(maxSize, this);
         this.services.addConnection(this);
+
+        // setup tracing, if its enabled
+        this.sampler = Tracing.getConfiguredSampler(this);
+        // add the phoenix span receiver so we can log the traces. We have a single trace
+        // source per-connection. We could do it per-JVM, but generally should only have a
+        // single phoenix connection, so this seems simpler for the moment
+        Trace.addReceiver(TracingCompat.newTraceMetricSource());
+    }
+
+    public Sampler<?> getSampler() {
+        return this.sampler;
     }
 
     public int executeStatements(Reader reader, List<Object> binds, PrintStream out) throws IOException, SQLException {

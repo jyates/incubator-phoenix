@@ -299,18 +299,17 @@
     <dependency>
       <groupId>commons-collections</groupId>
       <artifactId>commons-collections</artifactId>
-      <version>${collections.version}</version>
-    </dependency>    
+    </dependency>
   </dependencies>
 
   <profiles>
-    <!-- Profile for building against Hadoop 1. Active by default. Not used if another 
-      Hadoop profile is specified with mvn -Dhadoop.profile=foo -->
+    <!-- Profile for building against Hadoop 1. Activate using: mvn -Dhadoop.profile=1-->
     <profile>
       <id>hadoop-1</id>
       <activation>
         <property>
-          <name>!hadoop.profile</name>
+          <name>hadoop.profile</name>
+          <value>1</value>
         </property>
       </activation>
       <dependencies>
@@ -387,16 +386,20 @@
             <optional>true</optional>
             <scope>test</scope>
           </dependency>
+         <dependency>
+          <groupId>org.apache.phoenix</groupId>
+          <artifactId>phoenix-hadoop1-compat</artifactId>
+        </dependency>
       </dependencies>
     </profile>
 
-    <!-- Profile for building against Hadoop 2. Activate using: mvn -Dhadoop.profile=2 -->
+    <!-- Profile for building against Hadoop 2.  Active by default. Not used if another
+      Hadoop profile is specified with mvn -Dhadoop.profile=foo -->
     <profile>
       <id>hadoop-2</id>
       <activation>
         <property>
-          <name>hadoop.profile</name>
-          <value>2</value>
+          <name>!hadoop.profile</name>
         </property>
       </activation>
       <dependencies>
@@ -485,6 +488,10 @@
         <dependency>
           <groupId>org.apache.hadoop</groupId>
           <artifactId>hadoop-minicluster</artifactId>
+        </dependency>
+        <dependency>
+          <groupId>org.apache.phoenix</groupId>
+          <artifactId>phoenix-hadoop2-compat</artifactId>
         </dependency>
       </dependencies>
       <build>
