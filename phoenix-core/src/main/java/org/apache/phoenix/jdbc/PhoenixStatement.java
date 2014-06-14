@@ -111,6 +111,8 @@ import org.apache.phoenix.schema.SortOrder;
 import org.apache.phoenix.schema.TableRef;
 import org.apache.phoenix.schema.tuple.SingleKeyValueTuple;
 import org.apache.phoenix.schema.tuple.Tuple;
+import org.apache.phoenix.trace.util.Tracing;
+import org.apache.phoenix.trace.util.Tracing.CallableThrowable;
 import org.apache.phoenix.util.ByteUtil;
 import org.apache.phoenix.util.KeyValueUtil;
 import org.apache.phoenix.util.PhoenixContextExecutor;
@@ -183,13 +185,21 @@ public class PhoenixStatement implements Statement, SQLCloseable, org.apache.pho
         return new PhoenixResultSet(iterator, projector, this);
     }
     
-    protected boolean execute(CompilableStatement stmt) throws SQLException {
-        if (stmt.getOperation().isMutation()) {
-            executeMutation(stmt);
-            return false;
-        }
-        executeQuery(stmt);
-        return true;
+    protected boolean execute(final CompilableStatement stmt) throws SQLException {
+        return Tracing.trace(this.connection, this.toString(),
+            new CallableThrowable<Boolean, SQLException>() {
+
+                @Override
+                public Boolean call() throws SQLException {
+                    if (stmt.getOperation().isMutation()) {
+                        executeMutation(stmt);
+                        return false;
+                    }
+                    executeQuery(stmt);
+                    return true;
+                }
+
+            });
     }
     
     protected QueryPlan optimizeQuery(CompilableStatement stmt) throws SQLException {

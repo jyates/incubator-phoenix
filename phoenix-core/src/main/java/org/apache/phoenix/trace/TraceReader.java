@@ -53,7 +53,8 @@ public class TraceReader {
         comma.join(MetricInfo.TRACE.columnName, MetricInfo.PARENT.columnName,
           MetricInfo.SPAN.columnName, MetricInfo.DESCRIPTION.columnName,
           MetricInfo.START.columnName, MetricInfo.END.columnName,
-      MetricInfo.HOSTNAME.columnName, PhoenixTableMetricsWriter.TAG_COUNT);
+                    MetricInfo.HOSTNAME.columnName, PhoenixTableMetricsWriter.TAG_COUNT,
+                    PhoenixTableMetricsWriter.ANNOTATION_COUNT);
   }
 
   private Connection conn;
@@ -102,6 +103,7 @@ public class TraceReader {
       long end = results.getLong(index++);
       String host = results.getString(index++);
       int tagCount = results.getInt(index++);
+      int annotationCount = results.getInt(index++);
       //we have a new trace
       if(trace == null || traceid != trace.traceid ){
         // only increment if we are on a new trace, to ensure we get at least one
@@ -131,7 +133,7 @@ public class TraceReader {
           }
         }
       }
-      SpanInfo spanInfo = new SpanInfo(parentSpan, parent, span, desc, start, end, host, tagCount);
+      SpanInfo spanInfo = new SpanInfo(parentSpan, parent, span, desc, start, end, host, tagCount, annotationCount);
       // search the orphans to see if this is the parent id
 
       for (int i = 0; i < orphans.size(); i++) {
@@ -162,51 +164,65 @@ public class TraceReader {
 
       // go back and find the tags for the row
       spanInfo.tags.addAll(getTags(traceid, parent, span, tagCount));
+
+            spanInfo.annotations.addAll(getAnnotations(traceid, parent, span, annotationCount));
     }
 
     return traces;
  }
- 
-  /**
-   * Get all the tags for the given row
-   * @throws SQLException
-   */
-  private Collection<? extends String> getTags(long traceid, long parent, long span, int tagCount)
-      throws SQLException {
-    if (tagCount == 0) {
-      return Collections.emptyList();
-    }
-    // build the tags string
-    String tagColumnPrefix = PhoenixTableMetricsWriter.TAG_FAMILY + MetricInfo.ANNOTATION.columnName;
-    String[] parts = new String[tagCount];
-    for (int i = 0; i < tagCount; i++) {
-      parts[i] = tagColumnPrefix + i;
-    }
-    // join the columns together
-    String columns = comma.join(parts);
 
-    // redo them and add "VARCHAR to the end, so we can specify the columns
-    for (int i = 0; i < tagCount; i++) {
-      parts[i] = tagColumnPrefix + i + " VARCHAR";
+    private Collection<? extends String> getTags(long traceid, long parent, long span, int count)
+            throws SQLException {
+        return getDynamicCountColumns(traceid, parent, span, count,
+            PhoenixTableMetricsWriter.TAG_FAMILY, MetricInfo.TAG.columnName);
     }
-    String dynamicColumns = comma.join(parts);
-    String request =
-        "SELECT " + columns + " from " + table + "(" + dynamicColumns + ") WHERE "
-            + MetricInfo.TRACE.columnName + "=" + traceid + " AND " + MetricInfo.PARENT.columnName
-            + "=" + parent + " AND " + MetricInfo.SPAN.columnName + "=" + span;
-    LOG.trace("Requesting columns with: " + request);
-    ResultSet results = conn.createStatement().executeQuery(request);
-    List<String> tags = new ArrayList<String>();
-    while (results.next()) {
-      for (int index = 1; index <= tagCount; index++) {
-        tags.add(results.getString(index));
-      }
+
+    private Collection<? extends String> getAnnotations(long traceid, long parent, long span,
+            int count) throws SQLException {
+        return getDynamicCountColumns(traceid, parent, span, count,
+            PhoenixTableMetricsWriter.ANNOTATION_FAMILY, MetricInfo.ANNOTATION.columnName);
     }
-    if (tags.size() < tagCount) {
-      LOG.error("Missing tags! Expected " + tagCount + ", but only got " + tags.size() + " tags");
+
+    private Collection<? extends String> getDynamicCountColumns(long traceid, long parent,
+            long span, int count, String family, String columnName) throws SQLException {
+        if (count == 0) {
+            return Collections.emptyList();
+        }
+
+        // build the column strings, family.column.<index>
+        String columnPrefix = family + columnName;
+        String[] parts = new String[count];
+        for (int i = 0; i < count; i++) {
+            parts[i] = columnPrefix + i;
+        }
+        // join the columns together
+        String columns = comma.join(parts);
+
+        // redo them and add "VARCHAR to the end, so we can specify the columns
+        for (int i = 0; i < count; i++) {
+            parts[i] = columnPrefix + i + " VARCHAR";
+        }
+
+        String dynamicColumns = comma.join(parts);
+        String request =
+                "SELECT " + columns + " from " + table + "(" + dynamicColumns + ") WHERE "
+                        + MetricInfo.TRACE.columnName + "=" + traceid + " AND "
+                        + MetricInfo.PARENT.columnName + "=" + parent + " AND "
+                        + MetricInfo.SPAN.columnName + "=" + span;
+        LOG.trace("Requesting columns with: " + request);
+        ResultSet results = conn.createStatement().executeQuery(request);
+        List<String> cols = new ArrayList<String>();
+        while (results.next()) {
+            for (int index = 1; index <= count; index++) {
+                cols.add(results.getString(index));
+            }
+        }
+        if (cols.size() < count) {
+            LOG.error("Missing tags! Expected " + count + ", but only got " + cols.size()
+                    + " tags from rquest " + request);
+        }
+        return cols;
     }
-    return tags;
-  }
 
   /**
    * Holds information about a trace
@@ -266,11 +282,13 @@ public class TraceReader {
     public String hostname;
     public int tagCount;
     public List<String> tags = new ArrayList<String>();
+        public int annotationCount;
+    public List<String> annotations = new ArrayList<String>();
     private long parentId;
 
     public SpanInfo(SpanInfo parent, long parentid, long span, String desc, long start, long end,
         String host,
-        int tagCount) {
+ int tagCount, int annotationCount) {
       this.parent = parent;
       this.parentId = parentid;
       this.id = span;
@@ -279,6 +297,7 @@ public class TraceReader {
       this.end = end;
       this.hostname = host;
       this.tagCount = tagCount;
+            this.annotationCount = annotationCount;
     }
 
     @Override
@@ -329,10 +348,14 @@ public class TraceReader {
       sb.append("\n");
       sb.append("\tstart,end=" + start + "," + end);
       sb.append("\n");
+      sb.append("\telapsed="+(end-start));
+      sb.append("\n");
       sb.append("\thostname=" + hostname);
       sb.append("\n");
       sb.append("\ttags=(" + tagCount + ") " + tags);
       sb.append("\n");
+            sb.append("\tannotations=(" + annotationCount + ") " + annotations);
+            sb.append("\n");
       sb.append("\tchildren=");
       for (SpanInfo child : children) {
         sb.append(child.id + ", ");

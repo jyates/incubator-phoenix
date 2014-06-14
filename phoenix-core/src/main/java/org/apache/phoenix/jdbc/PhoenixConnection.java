@@ -73,6 +73,7 @@ import org.apache.phoenix.schema.PTable;
 import org.apache.phoenix.schema.PTableType;
 import org.apache.phoenix.trace.TracingCompat;
 import org.apache.phoenix.trace.util.Tracing;
+import org.apache.phoenix.trace.util.Tracing.CallableThrowable;
 import org.apache.phoenix.util.DateUtil;
 import org.apache.phoenix.util.JDBCUtil;
 import org.apache.phoenix.util.NumberUtil;
@@ -369,7 +370,28 @@ public class PhoenixConnection implements Connection, org.apache.phoenix.jdbc.Jd
 
     @Override
     public void commit() throws SQLException {
-        mutationState.commit();
+        // actual call to make
+        CallableThrowable<Void, SQLException> call = new CallableThrowable<Void, SQLException>() {
+            public Void call() throws SQLException {
+                mutationState.commit();
+                return null;
+            }
+        };
+
+        // we aren't already tracing, so we should kick off a new trace. Assuming that we are not in
+        // auto-commit mode, but its possible that some how we get here when auto-commit is off, so
+        // making sure that we will turn on tracing regardless.
+        if (!Trace.isTracing()) {
+            // for testing
+            assert !this.isAutoCommit : "Tracing wasn't enabled, but called commit in auto-commit mode."
+                    + " Probably missing tracing initialization higher in the call stack.";
+            // actually run the call
+            Tracing.trace(this, "committing mutations", call, false);
+            return;
+        }
+
+        // no tracing, just make the call
+        call.call();
     }
 
     @Override

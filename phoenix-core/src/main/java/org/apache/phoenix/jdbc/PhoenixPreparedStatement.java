@@ -53,6 +53,8 @@ import org.apache.phoenix.compile.StatementPlan;
 import org.apache.phoenix.exception.SQLExceptionCode;
 import org.apache.phoenix.exception.SQLExceptionInfo;
 import org.apache.phoenix.schema.PDataType;
+import org.apache.phoenix.trace.util.Tracing;
+import org.apache.phoenix.trace.util.Tracing.CallableThrowable;
 import org.apache.phoenix.util.DateUtil;
 import org.apache.phoenix.util.SQLCloseable;
 
@@ -154,7 +156,12 @@ public class PhoenixPreparedStatement extends PhoenixStatement implements Prepar
     @Override
     public ResultSet executeQuery() throws SQLException {
         throwIfUnboundParameters();
-        return executeQuery(statement);
+        return Tracing.trace(this.connection, this.toString(),
+            new CallableThrowable<ResultSet, SQLException>() {
+                public ResultSet call() throws SQLException {
+                    return executeQuery(statement);
+                }
+            });
     }
 
     @Override

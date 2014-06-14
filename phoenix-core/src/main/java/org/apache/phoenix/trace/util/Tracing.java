@@ -17,6 +17,7 @@
  */
 package org.apache.phoenix.trace.util;
 
+import java.sql.SQLException;
 import java.util.concurrent.Callable;
 
 import org.apache.commons.logging.Log;
@@ -257,9 +258,39 @@ public class Tracing {
      * @param call call to make
      * @return the value returned from the call
      * @throws E exception from the call.
+     * @throws SQLException if the connect fails when determining if auto-commit fails
      */
     public static <T, E extends Exception> T trace(PhoenixConnection conn, String desc,
-            CallableThrowable<T, E> call) throws E {
+            CallableThrowable<T, E> call) throws E, SQLException {
+        return trace(conn, desc, call, true);
+    }
+
+    /**
+     * Helper to automatically start and complete tracing on the given method. This will always
+     * attempt start a new span (which will always start, unless the {@link Sampler} says it
+     * shouldn't be traced). If you are just looking for flexible tracing that only turns on if the
+     * current thread/query is already tracing, use {@link #wrap(Callable, String)} or
+     * {@link Trace#wrap(Callable)}.
+     * <p>
+     * Ensures that the trace is closed, even if there is an exception from the
+     * {@link CallableThrowable}.
+     * <p>
+     * Generally, this should wrap a long-running operation.
+     * @param conn connection from which to determine if we are tracing, ala
+     *            {@link #startNewSpan(PhoenixConnection, String)}
+     * @param desc description of the operation being run
+     * @param call call to make
+     * @param skipIfAutoCommit <tt>true</tt> if we should skip tracing if auto-commit is enabled
+     * @return the value returned from the call
+     * @throws E exception from the call.
+     * @throws SQLException if the connect fails when determining if auto-commit fails
+     */
+    public static <T, E extends Exception> T trace(PhoenixConnection conn, String desc,
+            CallableThrowable<T, E> call, boolean skipIfAutoCommit) throws E, SQLException {
+      //if we are not auto-committing, this gets kicked off later, so we just execute the call as no
+        if (skipIfAutoCommit && !conn.getAutoCommit()) {
+            return call.call();
+        }
         TraceScope scope = Tracing.startNewSpan(conn, "Executing " + desc);
         try {
             T ret = call.call();
@@ -267,6 +298,7 @@ public class Tracing {
         } finally {
             scope.close();
         }
+
     }
 
     /**

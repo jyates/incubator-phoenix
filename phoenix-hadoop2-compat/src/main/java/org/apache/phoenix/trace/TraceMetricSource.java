@@ -18,6 +18,7 @@
 package org.apache.phoenix.trace;
 
 import static org.apache.phoenix.metrics.MetricInfo.ANNOTATION;
+import static org.apache.phoenix.metrics.MetricInfo.TAG;
 import static org.apache.phoenix.metrics.MetricInfo.END;
 import static org.apache.phoenix.metrics.MetricInfo.PARENT;
 import static org.apache.phoenix.metrics.MetricInfo.SPAN;
@@ -26,6 +27,8 @@ import static org.apache.phoenix.metrics.MetricInfo.START;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
 
 import org.apache.hadoop.hbase.util.Pair;
 import org.apache.hadoop.metrics2.MetricsCollector;
@@ -109,11 +112,21 @@ public class TraceMetricSource implements PhoenixSpanReceiver, MetricsSource {
     builder.addCounter(Interns.info(START.traceName, EMPTY_STRING), span.getStartTimeMillis());
     builder.addCounter(Interns.info(END.traceName, EMPTY_STRING), span.getStopTimeMillis());
     // add the tags to the span. They were written in order received so we mark them as such
-    int counter = 0;
     for (TimelineAnnotation ta : span.getTimelineAnnotations()) {
-      builder.add(new MetricsTag(Interns.info(ANNOTATION.traceName, Integer.toString(counter)), ta
+      builder.add(new MetricsTag(Interns.info(TAG.traceName, Long.toString(ta.getTime())), ta
           .getMessage()));
     }
+
+    // add the annotations. We assume they are serialized as strings and integers, but that can
+    // change in the future
+    Map<byte[], byte[]> annotations = span.getKVAnnotations();
+    for (Entry<byte[], byte[]> annotation : annotations.entrySet()) {
+      Pair<String, String> val =
+          TracingCompat.readAnnotation(annotation.getKey(), annotation.getValue());
+      builder.add(new MetricsTag(Interns.info(ANNOTATION.traceName, val.getFirst()), val
+          .getSecond()));
+    }
+
     // add the span to the list we care about
     synchronized (this) {
       spans.add(builder);
@@ -176,6 +189,5 @@ public class TraceMetricSource implements PhoenixSpanReceiver, MetricsSource {
     public void add(MetricsTag metricsTag) {
       tags.add(metricsTag);
     }
-
   }
 }

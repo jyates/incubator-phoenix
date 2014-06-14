@@ -104,10 +104,10 @@ public class PhoenixTracingEndToEndTest extends BaseHBaseManagedTimeIT {
         // interesting because we aren't auto-committing on the connection, so it just updates the
         // mutation state and returns.
         stmt.execute();
-        // stmt.setString(1, "key2");
-        // stmt.setLong(2, 2);
-        // stmt.execute();
-        // traceable.commit();
+        stmt.setString(1, "key2");
+        stmt.setLong(2, 2);
+        stmt.execute();
+        traceable.commit();
 
         // wait for the latch to countdown, as the metrics system is time-based
         LOG.debug("Waiting for latch to complete!");
@@ -147,7 +147,7 @@ public class PhoenixTracingEndToEndTest extends BaseHBaseManagedTimeIT {
                     continue;
                 }
                 LOG.info(i + " ******  Got trace: " + traceInfo);
-                if (traceInfo.contains("Indexing started")) {
+                if (traceInfo.contains("Completing index")) {
                     indexingCompleted = true;
                 }
             }

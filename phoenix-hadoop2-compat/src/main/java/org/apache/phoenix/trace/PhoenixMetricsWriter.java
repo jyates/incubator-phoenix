@@ -136,6 +136,11 @@ public class PhoenixMetricsWriter implements MetricsSink, TestableMetricsWriter 
                   public String getName() {
                     return input.name();
                   }
+
+                  @Override
+                  public String toString() {
+                    return input.toString();
+                  }
                 };
               }
             });
@@ -164,6 +169,11 @@ public class PhoenixMetricsWriter implements MetricsSink, TestableMetricsWriter 
             @Override
             public String value() {
               return tag.value();
+            }
+
+            @Override
+            public String toString() {
+              return tag.toString();
             }
 
           });

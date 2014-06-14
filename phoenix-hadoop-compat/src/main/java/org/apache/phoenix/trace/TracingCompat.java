@@ -18,6 +18,9 @@
 package org.apache.phoenix.trace;
 
 import org.apache.hadoop.hbase.CompatibilityFactory;
+import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.hbase.util.Pair;
+import org.cloudera.htrace.Span;
 import org.cloudera.htrace.SpanReceiver;
 
 /**
@@ -44,4 +47,12 @@ public class TracingCompat {
 
     /** Set context to enable filtering */
     public static final String METRICS_CONTEXT = "tracing";
+
+    public static void addAnnotation(Span span, String message, int value) {
+        span.addKVAnnotation(message.getBytes(), Bytes.toBytes(value));
+    }
+
+    public static Pair<String, String> readAnnotation(byte[] key, byte[] value) {
+        return new Pair<String, String>(new String(key), Integer.toString(Bytes.toInt(value)));
+    }
 }
