@@ -156,17 +156,6 @@ public class Tracing {
     }
 
     /**
-     * Enable tracing the current span on the server
-     * @param m mutation to update
-     * @param traceid the overall trace id
-     * @param spanid the current span id. This will be used as the parent span id on the server.
-     */
-    public static void traceOnServer(OperationWithAttributes m, byte[] traceid, byte[] spanid) {
-        m.setAttribute(Tracing.TRACE_ID_ATTRIBUTE_KEY, traceid);
-        m.setAttribute(Tracing.SPAN_ID_ATTRIBUTE_KEY, spanid);
-    }
-
-    /**
      * Check to see if tracing is current enabled. The trace for this thread is returned, if we are
      * already tracing. Otherwise, checks to see if mutation has tracing enabled, and if so, starts
      * a new span with the {@link Mutation}'s specified span as its parent.
