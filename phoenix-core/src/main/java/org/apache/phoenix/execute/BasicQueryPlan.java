@@ -37,9 +37,12 @@ import org.apache.phoenix.iterate.ResultIterator;
 import org.apache.phoenix.jdbc.PhoenixConnection;
 import org.apache.phoenix.parse.FilterableStatement;
 import org.apache.phoenix.schema.TableRef;
+import org.apache.phoenix.trace.TracingIterator;
+import org.apache.phoenix.trace.util.Tracing;
 import org.apache.phoenix.util.SQLCloseable;
 import org.apache.phoenix.util.SQLCloseables;
 import org.apache.phoenix.util.ScanUtil;
+import org.cloudera.htrace.TraceScope;
 
 import com.google.common.collect.Lists;
 
@@ -151,7 +154,7 @@ public abstract class BasicQueryPlan implements QueryPlan {
         ScanUtil.setTimeRange(scan, scn);
         ScanUtil.setTenantId(scan, connection.getTenantId() == null ? null : connection.getTenantId().getBytes());
         ResultIterator iterator = newIterator();
-        return dependencies.isEmpty() ? 
+        iterator = dependencies.isEmpty() ?
                 iterator : new DelegateResultIterator(iterator) {
             @Override
             public void close() throws SQLException {
@@ -162,6 +165,12 @@ public abstract class BasicQueryPlan implements QueryPlan {
                 }
             }
         };
+
+        // wrap the iterator so we start/end tracing as we expect
+        TraceScope scope =
+                Tracing.startNewSpan(context.getConnection(), "Creating basic query for "
+                        + this.statement);
+        return (scope.getSpan() != null) ? iterator : new TracingIterator(scope, iterator);
     }
 
     abstract protected ResultIterator newIterator() throws SQLException;
