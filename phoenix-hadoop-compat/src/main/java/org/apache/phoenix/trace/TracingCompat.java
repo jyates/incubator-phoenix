@@ -17,9 +17,12 @@
  */
 package org.apache.phoenix.trace;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hbase.CompatibilityFactory;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.Pair;
+import org.apache.phoenix.metrics.MetricsWriter;
 import org.cloudera.htrace.Span;
 import org.cloudera.htrace.SpanReceiver;
 
@@ -27,6 +30,8 @@ import org.cloudera.htrace.SpanReceiver;
  * Utilities for tracing that are common among the compatibility and core classes.
  */
 public class TracingCompat {
+
+    private static final Log LOG = LogFactory.getLog(TracingCompat.class);
 
     /**
      * @return a new SpanReceiver that will write to the correct metrics system
@@ -54,5 +59,21 @@ public class TracingCompat {
 
     public static Pair<String, String> readAnnotation(byte[] key, byte[] value) {
         return new Pair<String, String>(new String(key), Integer.toString(Bytes.toInt(value)));
+    }
+
+    public static MetricsWriter initializeWriter(String clazz) {
+        try {
+            MetricsWriter writer =
+                    Class.forName(clazz).asSubclass(MetricsWriter.class).newInstance();
+            writer.initialize();
+            return writer;
+        } catch (InstantiationException e) {
+            LOG.error("Failed to create metrics writer: " + clazz, e);
+        } catch (IllegalAccessException e) {
+            LOG.error("Failed to create metrics writer: " + clazz, e);
+        } catch (ClassNotFoundException e) {
+            LOG.error("Failed to create metrics writer: " + clazz, e);
+        }
+        return null;
     }
 }

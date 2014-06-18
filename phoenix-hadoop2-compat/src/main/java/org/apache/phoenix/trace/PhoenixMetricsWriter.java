@@ -25,8 +25,6 @@ import javax.annotation.Nullable;
 
 import org.apache.commons.configuration.Configuration;
 import org.apache.commons.configuration.SubsetConfiguration;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.metrics2.AbstractMetric;
 import org.apache.hadoop.metrics2.MetricsRecord;
 import org.apache.hadoop.metrics2.MetricsSink;
@@ -38,14 +36,13 @@ import org.apache.phoenix.metrics.PhoenixMetricsRecord;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Iterators;
 
 /**
  * Write metrics to a phoenix table
  */
 public class PhoenixMetricsWriter implements MetricsSink, TestableMetricsWriter {
-
-  private static final Log LOG = LogFactory.getLog(PhoenixMetricsWriter.class);
 
   /**
    * Metrics configuration key for the class that should be used for writing the output
@@ -62,17 +59,8 @@ public class PhoenixMetricsWriter implements MetricsSink, TestableMetricsWriter 
   public void init(SubsetConfiguration config) {
     // instantiate the configured writer class
     String clazz = config.getString(PHOENIX_METRICS_WRITER_CLASS);
-
-    try {
-      writer = Class.forName(clazz).asSubclass(MetricsWriter.class).newInstance();
-      writer.initialize();
-    } catch (InstantiationException e) {
-      LOG.error("Failed to create metrics writer: " + clazz, e);
-    } catch (IllegalAccessException e) {
-      LOG.error("Failed to create metrics writer: " + clazz, e);
-    } catch (ClassNotFoundException e) {
-      LOG.error("Failed to create metrics writer: " + clazz, e);
-    }
+    this.writer = TracingCompat.initializeWriter(clazz);
+    Preconditions.checkNotNull(writer, "Could not correctly initialize metrics writer!");
   }
 
   @Override
