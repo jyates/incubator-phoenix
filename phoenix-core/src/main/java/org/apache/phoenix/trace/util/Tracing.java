@@ -18,6 +18,7 @@
 package org.apache.phoenix.trace.util;
 
 import java.sql.SQLException;
+import java.util.Properties;
 import java.util.concurrent.Callable;
 
 import org.apache.commons.logging.Log;
@@ -55,7 +56,7 @@ public class Tracing {
     // Constants for passing into the metrics system
     public static final String TRACE_METRIC_PREFIX = "phoenix.trace.instance";
     // Constants for for configuring tracing
-    public static final String TRACING_LEVEL_KEY = "com.salesforce.phoenix.trace.frequency";
+    public static final String TRACING_LEVEL_KEY = "org.apache.phoenix.trace.frequency";
     protected static final String PROBABILITY_THRESHOLD_KEY =
             "com.salesforce.phoenix.trace.probability.threshold";
 
@@ -133,6 +134,10 @@ public class Tracing {
 
     private static Sampler<?> getSampler(String traceLevel, ConfigurationAdapter conf) {
         return Frequency.getSampler(traceLevel).builder.apply(conf);
+    }
+
+    public static void setSampling(Properties props, Frequency freq) {
+        props.setProperty(TRACING_LEVEL_KEY, freq.key);
     }
 
     /**

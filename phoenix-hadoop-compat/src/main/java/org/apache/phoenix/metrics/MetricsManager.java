@@ -53,4 +53,6 @@ public interface MetricsManager {
      * @return the source
      */
     public abstract <T> T registerSource(String name, String description, T source);
+
+    public void shutdown();
 }

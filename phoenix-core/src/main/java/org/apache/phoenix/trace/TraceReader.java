@@ -48,8 +48,7 @@ public class TraceReader {
     private String knownColumns;
     {
         // the order here dictates the order we pull out the values below. For now, just keep them
-        // in
-        // sync - so we can be efficient pulling them off the results.
+        // in sync - so we can be efficient pulling them off the results.
         knownColumns =
                 comma.join(MetricInfo.TRACE.columnName, MetricInfo.PARENT.columnName,
                     MetricInfo.SPAN.columnName, MetricInfo.DESCRIPTION.columnName,
@@ -193,18 +192,17 @@ public class TraceReader {
             return Collections.emptyList();
         }
 
-        // build the column strings, family.column.<index>
-        String columnPrefix = family + columnName;
+        // build the column strings, family.column<index>
         String[] parts = new String[count];
         for (int i = 0; i < count; i++) {
-            parts[i] = columnPrefix + i;
+            parts[i] = PhoenixTableMetricsWriter.getDynamicColumnName(family, columnName, i);
         }
         // join the columns together
         String columns = comma.join(parts);
 
         // redo them and add "VARCHAR to the end, so we can specify the columns
         for (int i = 0; i < count; i++) {
-            parts[i] = columnPrefix + i + " VARCHAR";
+            parts[i] = parts[i] + " VARCHAR";
         }
 
         String dynamicColumns = comma.join(parts);

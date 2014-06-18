@@ -46,6 +46,7 @@ import org.apache.phoenix.end2end.BaseHBaseManagedTimeIT;
 import org.apache.phoenix.jdbc.PhoenixDatabaseMetaData;
 import org.apache.phoenix.metrics.MetricInfo;
 import org.apache.phoenix.metrics.Metrics;
+import org.apache.phoenix.metrics.TracingTestCompat;
 import org.apache.phoenix.schema.PTableType;
 import org.apache.phoenix.util.SchemaUtil;
 import org.junit.Test;
@@ -55,7 +56,7 @@ import com.google.common.collect.Lists;
 /**
  * Test that the logging sink stores the expected metrics/stats
  */
-public class PhoenixTableMetricsWriterTest extends BaseHBaseManagedTimeIT {
+public class PhoenixTableMetricsWriterTest extends BaseTracingTestIT {
 
     private static final Log LOG = LogFactory.getLog(PhoenixTableMetricsWriterTest.class);
 
@@ -67,8 +68,7 @@ public class PhoenixTableMetricsWriterTest extends BaseHBaseManagedTimeIT {
     @Test
     public void testCreatesTable() throws Exception {
         PhoenixTableMetricsWriter sink = new PhoenixTableMetricsWriter();
-        Properties props = new Properties(TEST_PROPERTIES);
-        Connection conn = DriverManager.getConnection(getUrl(), props);
+        Connection conn = getConnectionWithoutTracing();
         sink.initForTesting(conn);
         // check for existence of the logging table
         DatabaseMetaData dbmd = conn.getMetaData();
@@ -97,10 +97,14 @@ public class PhoenixTableMetricsWriterTest extends BaseHBaseManagedTimeIT {
      */
     @Test
     public void writeMetrics() throws Exception {
+        // hook up a phoenix sink
         PhoenixTableMetricsWriter sink = new PhoenixTableMetricsWriter();
-        Properties props = new Properties(TEST_PROPERTIES);
-        Connection conn = DriverManager.getConnection(getUrl(), props);
+        Connection conn = getConnectionWithoutTracing();
         sink.initForTesting(conn);
+
+        // writer that will translate to the sink (specific to hadoop version used)
+        TestableMetricsWriter writer = TracingTestCompat.newTraceMetricSink();
+        writer.setWriterForTesting(sink);
 
         // create a simple metrics record
         long traceid = 987654;
@@ -139,9 +143,7 @@ public class PhoenixTableMetricsWriterTest extends BaseHBaseManagedTimeIT {
         MetricsRecord record =
                 new ExposedMetricsRecordImpl(info, System.currentTimeMillis(), tags, metrics);
 
-        // create a generic sink
-        PhoenixMetricsWriter writer = new PhoenixMetricsWriter();
-        writer.setWriterForTesting(sink);
+
         writer.putMetrics(record);
         writer.flush();
 

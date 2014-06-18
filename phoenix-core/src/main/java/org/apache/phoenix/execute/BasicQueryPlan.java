@@ -169,7 +169,7 @@ public abstract class BasicQueryPlan implements QueryPlan {
         // wrap the iterator so we start/end tracing as we expect
         TraceScope scope =
                 Tracing.startNewSpan(context.getConnection(), "Creating basic query for "
-                        + this.statement);
+                        + getPlanSteps(iterator));
         return (scope.getSpan() != null) ? new TracingIterator(scope, iterator) : iterator;
     }
 
@@ -204,8 +204,12 @@ public abstract class BasicQueryPlan implements QueryPlan {
         // Optimize here when getting explain plan, as queries don't get optimized until after compilation
         QueryPlan plan = context.getConnection().getQueryServices().getOptimizer().optimize(context.getStatement(), this);
         ResultIterator iterator = plan.iterator();
+        return new ExplainPlan(getPlanSteps(iterator));
+    }
+    
+    private List<String> getPlanSteps(ResultIterator iterator){
         List<String> planSteps = Lists.newArrayListWithExpectedSize(5);
         iterator.explain(planSteps);
-        return new ExplainPlan(planSteps);
+        return planSteps;
     }
 }

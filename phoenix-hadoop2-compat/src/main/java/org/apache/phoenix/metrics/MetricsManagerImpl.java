@@ -61,4 +61,11 @@ public class MetricsManagerImpl implements MetricsManager {
     }
     Preconditions.checkArgument(match, object + " is not one of " + Arrays.toString(classes));
   }
+
+  @Override
+  public void shutdown() {
+    if (this.system != null) {
+      this.system.shutdown();
+    }
+  }
 }

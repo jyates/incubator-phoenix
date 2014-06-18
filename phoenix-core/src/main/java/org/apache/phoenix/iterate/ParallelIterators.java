@@ -265,7 +265,7 @@ public class ParallelIterators extends ExplainTable implements ResultIterators {
                         public Object getJobId() {
                             return ParallelIterators.this;
                         }
-                    }, "Parallel scanner  for table: " + tableRef.getTable().getName().getString()));
+                    }, "Parallel scanner for table: " + tableRef.getTable().getName().getString()));
                     futures.add(new Pair<byte[],Future<PeekingResultIterator>>(split.getLowerRange(),future));
                 }
             }

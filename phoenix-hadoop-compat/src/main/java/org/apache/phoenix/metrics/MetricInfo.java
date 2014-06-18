@@ -37,8 +37,8 @@ public enum MetricInfo {
     PARENT("parent_id", "parent_id"),
     START("start_time", "start_time"),
     END("end_time", "end_time"),
-    TAG("phoenix.tag", ".t"),
-    ANNOTATION("phoenix.annotation", ".a"),
+    TAG("phoenix.tag", "t"),
+    ANNOTATION("phoenix.annotation", "a"),
     HOSTNAME("Hostname", "hostname"),
     DESCRIPTION("", "description");
 

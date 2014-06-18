@@ -293,6 +293,9 @@ public class MutationState implements SQLCloseable {
                             Map<PColumn,byte[]> valueEntry = rowEntry.getValue();
                             if (valueEntry != PRow.DELETE_MARKER) {
                                 for (PColumn column : valueEntry.keySet()) {
+                                    if (columns.length <= column.getPosition()) {
+                                        System.out.println("Jesse");
+                                    }
                                     columns[column.getPosition()] = column;
                                 }
                             }

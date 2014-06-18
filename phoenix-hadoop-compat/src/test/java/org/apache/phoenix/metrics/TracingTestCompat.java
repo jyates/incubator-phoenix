@@ -32,4 +32,14 @@ public class TracingTestCompat {
     public static TestableMetricsWriter newTraceMetricSink() {
         return CompatibilityFactory.getInstance(TestableMetricsWriter.class);
     }
+
+    /**
+     * Register the sink with the metrics system, so we don't need to specify it in the conf
+     * @param sink
+     */
+    public static void registerSink(MetricsWriter sink) {
+        TestableMetricsWriter writer = newTraceMetricSink();
+        writer.setWriterForTesting(sink);
+        Metrics.getManager().register("phoenix", "test sink gets logged", writer);
+    }
 }

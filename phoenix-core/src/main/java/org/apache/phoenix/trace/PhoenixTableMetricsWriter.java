@@ -59,12 +59,13 @@ public class PhoenixTableMetricsWriter implements MetricsWriter {
 
     public static final Log LOG = LogFactory.getLog(PhoenixTableMetricsWriter.class);
 
+    private static final Joiner COLUMN_JOIN = Joiner.on(".");
     static final String TAG_FAMILY = "tags";
     /** Count of the number of tags we are storing for this row */
-    static final String TAG_COUNT = TAG_FAMILY + ".count";
+    static final String TAG_COUNT = COLUMN_JOIN.join(TAG_FAMILY, "count");
 
     static final String ANNOTATION_FAMILY = "annotations";
-    static final String ANNOTATION_COUNT = ANNOTATION_FAMILY + ".count";
+    static final String ANNOTATION_COUNT = COLUMN_JOIN.join(ANNOTATION_FAMILY, "count");
 
     /** Join strings on a comma */
     private static final Joiner COMMAS = Joiner.on(',');
@@ -121,32 +122,28 @@ public class PhoenixTableMetricsWriter implements MetricsWriter {
      */
     private void createTable(Connection conn, String table) throws SQLException {
         String ddl =
-                "create table if not exists " + table + "( " + TRACE.columnName
-                        + " bigint not null, " + PARENT.columnName + " bigint not null, "
-                        + SPAN.columnName + " bigint not null, " + DESCRIPTION.columnName
-                        + " varchar, " + START.columnName + " bigint not null, " + END.columnName
-                        + " bigint not null, " + HOSTNAME.columnName + " varchar, " + TAG_COUNT
-                        + " smallint, " + ANNOTATION_COUNT + " smallint"
-                        + "  CONSTRAINT pk PRIMARY KEY (" + TRACE.columnName + ", "
-                        + PARENT.columnName + ", " + SPAN.columnName + "))\n";
+                "create table if not exists " + table + "( " + 
+                        TRACE.columnName + " bigint not null, " +
+                        PARENT.columnName + " bigint not null, " +
+                        SPAN.columnName + " bigint not null, " +
+                        DESCRIPTION.columnName + " varchar, " +
+                        START.columnName + " bigint not null, " +
+                        END.columnName + " bigint not null, " +
+                        HOSTNAME.columnName + " varchar, " +
+                        TAG_COUNT + " smallint, " +
+                        ANNOTATION_COUNT + " smallint" +
+                        "  CONSTRAINT pk PRIMARY KEY (" + TRACE.columnName + ", "
+                            + PARENT.columnName + ", " + SPAN.columnName + "))\n";
         PreparedStatement stmt = conn.prepareStatement(ddl);
         stmt.execute();
         this.table = table;
     }
 
     /**
-     * Flush the writes to the table.
+     * Noop
      */
     @Override
     public void flush() {
-        // commit all the changes we have seen
-        try {
-            LOG.trace("Flushing metrics to stats table");
-            conn.commit();
-        } catch (SQLException e) {
-            LOG.error("Failed to commit trace stats to table!", e);
-            // TODO should we do something else here? Try to get a new connection? Kill ourselves?
-        }
     }
 
     /**
@@ -164,6 +161,8 @@ public class PhoenixTableMetricsWriter implements MetricsWriter {
         // drop it into the queue of things that should be written
         List<String> keys = new ArrayList<String>();
         List<Object> values = new ArrayList<Object>();
+        // we need to keep variable values in a separate set since they may have spaces, which
+        // causes the parser to barf. Instead, we need to add them after the statement is prepared
         List<String> variableValues = new ArrayList<String>(record.tags().size());
         keys.add(TRACE.columnName);
         values.add(Long.parseLong(record.name().substring(TracingCompat.METRIC_SOURCE_KEY.length())));
@@ -184,21 +183,16 @@ public class PhoenixTableMetricsWriter implements MetricsWriter {
         int tagCount = 0;
         for (PhoenixMetricTag tag : record.tags()) {
             if (tag.name().equals(ANNOTATION.traceName)) {
-                // tags have the count in the their description, so we can set that column as well
-                keys.add(ANNOTATION_FAMILY + ANNOTATION.columnName + annotationCount++ + " VARCHAR");
-                // build the annotation value
-                String val = tag.description() + " - " + tag.value();
-                variableValues.add(val);
-                values.add(VARIABLE_VALUE);
+                addDynamicEntry(keys, values, variableValues, ANNOTATION_FAMILY, tag, ANNOTATION,
+                    annotationCount);
+                annotationCount++;
             } else if (tag.name().equals(TAG.traceName)) {
-                keys.add(TAG_FAMILY + TAG.columnName + tagCount++ + " VARCHAR");
-                String val = tag.description() + " - " + tag.value();
-                variableValues.add(val);
-                values.add(VARIABLE_VALUE);
+                addDynamicEntry(keys, values, variableValues, TAG_FAMILY, tag, TAG, tagCount);
+                tagCount++;
             } else if (tag.name().equals(HOSTNAME.traceName)) {
                 keys.add(HOSTNAME.columnName);
-                variableValues.add(tag.value());
                 values.add(VARIABLE_VALUE);
+                variableValues.add(tag.value());
             } else if (tag.name().equals("Context")) {
                 // ignored
             } else {
@@ -224,14 +218,33 @@ public class PhoenixTableMetricsWriter implements MetricsWriter {
         }
         try {
             PreparedStatement ps = conn.prepareStatement(stmt);
-            // need to add each tag as a dynamic value
+            // add everything that wouldn't/may not parse
             int index = 1;
             for (String tag : variableValues) {
                 ps.setString(index++, tag);
             }
             ps.execute();
+            // commit right away - metrics are async already, so there is really no effect on the
+            // system
+            conn.commit();
         } catch (SQLException e) {
             LOG.error("Could not write metric: \n" + record + " to prepared statement:\n" + stmt, e);
         }
+    }
+
+    public static String getDynamicColumnName(String family, String column, int count) {
+        return COLUMN_JOIN.join(family, column) + count;
+    }
+
+    private void addDynamicEntry(List<String> keys, List<Object> values,
+            List<String> variableValues, String family, PhoenixMetricTag tag,
+            MetricInfo metric, int count) {
+        // <family><.dynColumn><count> <VARCHAR>
+        keys.add(getDynamicColumnName(family, metric.columnName, count) + " VARCHAR");
+
+        // build the annotation value
+        String val = tag.description() + " - " + tag.value();
+        values.add(VARIABLE_VALUE);
+        variableValues.add(val);
     }
 }

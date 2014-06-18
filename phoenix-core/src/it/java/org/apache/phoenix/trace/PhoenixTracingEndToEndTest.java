@@ -27,7 +27,9 @@ import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -35,39 +37,165 @@ import java.util.concurrent.TimeUnit;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.phoenix.coprocessor.BaseScannerRegionObserver;
-import org.apache.phoenix.end2end.BaseHBaseManagedTimeIT;
 import org.apache.phoenix.metrics.Metrics;
-import org.apache.phoenix.metrics.MetricsWriter;
 import org.apache.phoenix.metrics.TracingTestCompat;
 import org.apache.phoenix.trace.TraceReader.SpanInfo;
 import org.apache.phoenix.trace.TraceReader.TraceHolder;
-import org.apache.phoenix.trace.util.Tracing;
+import org.cloudera.htrace.Sampler;
+import org.cloudera.htrace.Span;
+import org.cloudera.htrace.SpanReceiver;
+import org.cloudera.htrace.Trace;
+import org.cloudera.htrace.TraceScope;
+import org.junit.After;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 /**
  * Test that the logging sink stores the expected metrics/stats
  */
-public class PhoenixTracingEndToEndTest extends BaseHBaseManagedTimeIT {
+public class PhoenixTracingEndToEndTest extends BaseTracingTestIT {
 
     private static final Log LOG = LogFactory.getLog(PhoenixTracingEndToEndTest.class);
     private static final int MAX_RETRIES = 10;
     private final String table = "ENABLED_FOR_LOGGING";
     private final String index = "ENABALED_FOR_LOGGING_INDEX";
 
-    private Connection getTracingConnection() throws Exception {
-        Properties props = new Properties(TEST_PROPERTIES);
-        props.put(Tracing.TRACING_LEVEL_KEY, Tracing.Frequency.ALWAYS.getKey());
-        return DriverManager.getConnection(getUrl(), props);
+    private static ListenableConnection LISTENABLE;
+
+    @BeforeClass
+    public static void setupMetrics() throws Exception {
+        Connection conn = getTracingConnection();
+        LISTENABLE = new ListenableConnection(conn);
+
+        PhoenixTableMetricsWriter sink = new PhoenixTableMetricsWriter();
+        sink.initForTesting(LISTENABLE);
+        TracingTestCompat.registerSink(sink);
+    }
+
+    @After
+    public void cleanup() {
+        LISTENABLE.clearListeners();
+    }
+
+    private static void waitForCommit(CountDownLatch latch) {
+        LISTENABLE.addListener(new LatchedCommitListener(latch));
+    }
+
+    private static class ListenableConnection extends DelegatingConnection {
+        List<CommitListener> listeners = new ArrayList<CommitListener>();
+
+        public ListenableConnection(Connection delegate) {
+            super(delegate);
+        }
+
+        @Override
+        public void commit() throws SQLException {
+            super.commit();
+            synchronized (listeners) {
+                for (CommitListener listener : listeners) {
+                    listener.commit();
+                }
+            }
+        }
+
+        public void addListener(CommitListener listener) {
+            synchronized (listeners) {
+                this.listeners.add(listener);
+            }
+        }
+
+        public void clearListeners() {
+            synchronized (listeners) {
+                this.listeners.clear();
+            }
+        }
+
+        public void removeListener(CommitListener listener) {
+            synchronized (listeners) {
+                listeners.remove(listener);
+            }
+        }
+    }
+
+    interface CommitListener {
+        public void commit();
+    }
+
+    static class LatchedCommitListener implements CommitListener {
+        private CountDownLatch latch;
+
+        public LatchedCommitListener(CountDownLatch latch) {
+            this.latch = latch;
+        }
+
+        public void commit() {
+            this.latch.countDown();
+        }
     }
 
     /**
-     * Register the sink with the metrics system, so we don't need to specify it in the conf
-     * @param sink
+     * Simple test that we can correctly write spans to the phoenix table
+     * @throws Exception
      */
-    private void registerSink(MetricsWriter sink) {
-        TestableMetricsWriter writer = TracingTestCompat.newTraceMetricSink();
-        writer.setWriterForTesting(sink);
-        Metrics.getManager().register("phoenix", "test sink gets logged", writer);
+    @Test
+    public void testWriteSpans() throws Exception {
+        // get a receiver for the spans
+        SpanReceiver receiver = TracingCompat.newTraceMetricSource();
+        // which also needs to a source for the metrics system
+        Metrics.getManager().registerSource("testWriteSpans-source", "source for testWriteSpans",
+            receiver);
+
+        // watch our sink so we know when commits happen
+        CountDownLatch latch = new CountDownLatch(1);
+        waitForCommit(latch);
+
+        // write some spans
+        TraceScope trace = Trace.startSpan("Start write test", Sampler.ALWAYS);
+        Span span = trace.getSpan();
+
+        // add a child with some annotations
+        Span child = span.child("child 1");
+        child.addTimelineAnnotation("timeline annotation");
+        TracingCompat.addAnnotation(child, "test annotation", 10);
+        child.stop();
+
+        // sleep a little bit to get some time difference
+        Thread.sleep(100);
+
+        trace.close();
+
+        // pass the trace on
+        receiver.receiveSpan(span);
+
+        // wait for the tracer to actually do the write
+        latch.await();
+
+        // look for the writes to make sure they were made
+        Connection conn = getConnectionWithoutTracing();
+        checkStoredTraces(conn, new TraceChecker() {
+            public boolean foundTrace(TraceHolder trace, SpanInfo info) {
+                if (info.description.equals("child 1")) {
+                    assertEquals("Not all annotations present", 1, info.annotationCount);
+                    assertEquals("Not all tags present", 1, info.tagCount);
+                    boolean found = false;
+                    for (String annotation : info.annotations) {
+                        if (annotation.startsWith("test annotation")) {
+                            found = true;
+                        }
+                    }
+                    assertTrue("Missing the annotations in span: " + info, found);
+                    found = false;
+                    for (String tag : info.tags) {
+                        if (tag.endsWith("timeline annotation")) {
+                            found = true;
+                        }
+                    }
+                    assertTrue("Missing the tags in span: " + info, found);
+                    return true;
+                }
+                return false;
+            }
+        });
     }
 
     /**
@@ -77,32 +205,24 @@ public class PhoenixTracingEndToEndTest extends BaseHBaseManagedTimeIT {
      */
     @Test
     public void testClientServerIndexingTracing() throws Exception {
-        // setup the sink
-        PhoenixTableMetricsWriter sink = new PhoenixTableMetricsWriter();
-
-        // separate connections to minimize amount of traces that are generated
-        Connection traceable = getTracingConnection();
-        Properties props = new Properties(TEST_PROPERTIES);
-        Connection conn = DriverManager.getConnection(getUrl(), props);
-
         // one call for client side, one call for server side
         final CountDownLatch updated = new CountDownLatch(2);
-        Connection countable = new CountDownConnection(conn, updated);
-        sink.initForTesting(countable);
+        waitForCommit(updated);
 
-        registerSink(sink);
-
+        // separate connection so we don't create extra traces
+        Connection conn = getConnectionWithoutTracing();
         createTestTable(conn, true);
 
+        // trace the requests we send
+        Connection traceable = getTracingConnection();
         LOG.debug("Doing dummy the writes to the tracked table");
         String insert = "UPSERT INTO " + table + " VALUES (?, ?)";
         PreparedStatement stmt = traceable.prepareStatement(insert);
         stmt.setString(1, "key1");
         stmt.setLong(2, 1);
         // this first trace just does a simple open/close of the span. Its not doing anything
-        // terribly
-        // interesting because we aren't auto-committing on the connection, so it just updates the
-        // mutation state and returns.
+        // terribly interesting because we aren't auto-committing on the connection, so it just
+        // updates the mutation state and returns.
         stmt.execute();
         stmt.setString(1, "key2");
         stmt.setLong(2, 2);
@@ -111,7 +231,7 @@ public class PhoenixTracingEndToEndTest extends BaseHBaseManagedTimeIT {
 
         // wait for the latch to countdown, as the metrics system is time-based
         LOG.debug("Waiting for latch to complete!");
-        updated.await(200, TimeUnit.SECONDS);// should be way more than GC pauses on the server.
+        updated.await(200, TimeUnit.SECONDS);// should be way more than GC pauses
 
         // read the traces back out
 
@@ -130,33 +250,22 @@ public class PhoenixTracingEndToEndTest extends BaseHBaseManagedTimeIT {
          * where '*' is a generically named thread (e.g phoenix-1-thread-X)
          */
         
-        TraceReader reader = new TraceReader(conn);
-        // look for a trace with indexing info. This is inherently pretty brittle, but we don't have
-        // a
-        // better way to make sure that the indexing stuff has shown up w/o seriously munging the
-        // code.
-        int retries = 0;
-        boolean indexingCompleted = false;
-        while (retries < MAX_RETRIES && !indexingCompleted) {
-            Collection<TraceHolder> traces = reader.readAll(100);
-            int i = 0;
-            for (TraceHolder trace : traces) {
+        boolean indexingCompleted = checkStoredTraces(conn, new TraceChecker() {
+            public boolean foundTrace(TraceHolder trace, SpanInfo span) {
                 String traceInfo = trace.toString();
                 // skip logging traces that are just traces about tracing
                 if (traceInfo.contains(TracingCompat.DEFAULT_STATS_TABLE_NAME)) {
-                    continue;
+                    return false;
                 }
-                LOG.info(i + " ******  Got trace: " + traceInfo);
                 if (traceInfo.contains("Completing index")) {
-                    indexingCompleted = true;
+                    return true;
                 }
+                return false;
             }
-            LOG.info(retries + ") ======  Waiting for indexing updates to be propagated ========");
-            Thread.sleep(1000);
-            retries++;
-        }
+        });
 
         assertTrue("Never found indexing updates", indexingCompleted);
+        // conn.close();
     }
 
     private void createTestTable(Connection conn, boolean withIndex) throws SQLException {
@@ -187,10 +296,12 @@ public class PhoenixTracingEndToEndTest extends BaseHBaseManagedTimeIT {
         PhoenixTableMetricsWriter sink = new PhoenixTableMetricsWriter();
         Connection traceable = getTracingConnection();
         final CountDownLatch updated = new CountDownLatch(3);
+
+        // connection that we can both count and trace
         Connection countable = new CountDownConnection(traceable, updated);
         sink.initForTesting(countable);
 
-        registerSink(sink);
+        TracingTestCompat.registerSink(sink);
 
         // trace the setup of the table
         createTestTable(traceable, false);
@@ -206,36 +317,27 @@ public class PhoenixTracingEndToEndTest extends BaseHBaseManagedTimeIT {
         stmt.execute();
         traceable.commit();
 
-        updated.await(300, TimeUnit.SECONDS);
+        // wait for all the commits to take place
+        updated.await();
 
-        // read the traces back out
-        TraceReader reader = new TraceReader(traceable);
-        // look for a trace with indexing info. This is inherently pretty brittle, but we don't have
-        // a
-        // better way to make sure that the indexing stuff has shown up w/o seriously munging the
-        // code.
-        int retries = 0;
-        boolean traceLoggingCompleted = false;
-        outer: while (retries < MAX_RETRIES) {
-            Collection<TraceHolder> traces = reader.readAll(100);
-            for (TraceHolder trace : traces) {
-                LOG.info("Got trace: " + trace);
-                for (SpanInfo span : trace.spans) {
-                    // this is the span with the info the for the logging table
-                    if (span.description.contains(TracingCompat.DEFAULT_STATS_TABLE_NAME)) {
-                        assertNotNull("No parent span set for the trace for stats table update",
-                            span.parent);
-                        traceLoggingCompleted = true;
+        boolean traceLoggingCompleted =
+                checkStoredTraces(getConnectionWithoutTracing(), new TraceChecker() {
+
+                    @Override
+                    public boolean foundTrace(TraceHolder currentTrace, SpanInfo currentSpan) {
+                        boolean found =
+                                currentSpan.description
+                                        .contains(TracingCompat.DEFAULT_STATS_TABLE_NAME);
+                        if (!found) {
+                            return false;
+                        }
+                        assertNotNull(
+                            "No parent span set for the trace for stats table update. Current trace: "
+                                    + currentTrace + "\n==== Span:" + currentSpan,
+                            currentSpan.parent);
+                        return found;
                     }
-                }
-                if (traceLoggingCompleted) {
-                    break outer;
-                }
-                LOG.info("======  Waiting for tracing updates to be propagated ========");
-                Thread.sleep(1000);
-                retries++;
-            }
-        }
+                });
 
         assertTrue("Never found trace-logging updates", traceLoggingCompleted);
     }
@@ -255,7 +357,7 @@ public class PhoenixTracingEndToEndTest extends BaseHBaseManagedTimeIT {
         Connection countable = new CountDownConnection(conn, updated);
         sink.initForTesting(countable);
 
-        registerSink(sink);
+        TracingTestCompat.registerSink(sink);
 
         // create a dummy table
         createTestTable(conn, false);
@@ -286,26 +388,15 @@ public class PhoenixTracingEndToEndTest extends BaseHBaseManagedTimeIT {
 
         assertTrue("Get expected updates to trace table", updated.await(200, TimeUnit.SECONDS));
         // don't trace reads either
-        TraceReader reader = new TraceReader(conn);
-        int retries = 0;
-        boolean tracingComplete = false;
-        while (retries < MAX_RETRIES && !tracingComplete) {
-            Collection<TraceHolder> traces = reader.readAll(100);
-            for (TraceHolder trace : traces) {
-                String traceInfo = trace.toString();
-                LOG.info("Got trace: " + trace);
-                if (traceInfo.contains("Parallel scanner")) {
-                    tracingComplete = true;
-                }
-            }
-            if (tracingComplete) {
-                continue;
-            }
-            LOG.info("======  Waiting for tracing updates to be propagated ========");
-            Thread.sleep(1000);
-            retries++;
-        }
+        boolean tracingComplete = checkStoredTraces(conn, new TraceChecker(){
 
+            @Override
+            public boolean foundTrace(TraceHolder currentTrace) {
+                String traceInfo = currentTrace.toString();
+                return traceInfo.contains("Parallel scanner");
+            }
+            
+        });
         assertTrue("Didn't find the parallel scanner in the tracing", tracingComplete);
     }
 
@@ -324,7 +415,7 @@ public class PhoenixTracingEndToEndTest extends BaseHBaseManagedTimeIT {
         Connection countable = new CountDownConnection(conn, updated);
         sink.initForTesting(countable);
 
-        registerSink(sink);
+        TracingTestCompat.registerSink(sink);
 
         // create a dummy table
         createTestTable(conn, false);
@@ -356,29 +447,51 @@ public class PhoenixTracingEndToEndTest extends BaseHBaseManagedTimeIT {
 
         assertTrue("Get expected updates to trace table", updated.await(200, TimeUnit.SECONDS));
         // don't trace reads either
+        boolean found = checkStoredTraces(conn, new TraceChecker() {
+            public boolean foundTrace(TraceHolder trace) {
+                String traceInfo = trace.toString();
+                return traceInfo.contains(BaseScannerRegionObserver.SCANNER_OPENED_TRACE_INFO);
+            }
+        });
+        assertTrue("Didn't find the parallel scanner in the tracing", found);
+    }
+
+    private boolean checkStoredTraces(Connection conn, TraceChecker checker) throws Exception {
         TraceReader reader = new TraceReader(conn);
         int retries = 0;
-        boolean tracingComplete = false;
-        while (retries < MAX_RETRIES && !tracingComplete) {
+        boolean found = false;
+        outer: while (retries < MAX_RETRIES) {
             Collection<TraceHolder> traces = reader.readAll(100);
             for (TraceHolder trace : traces) {
-                String traceInfo = trace.toString();
                 LOG.info("Got trace: " + trace);
-                if (traceInfo.contains(BaseScannerRegionObserver.SCANNER_OPENED_TRACE_INFO)) {
-                    tracingComplete = true;
+                found = checker.foundTrace(trace);
+                if (found) {
+                    break outer;
                 }
-            }
-            if (tracingComplete) {
-                continue;
+                for (SpanInfo span : trace.spans) {
+                    found = checker.foundTrace(trace, span);
+                    if (found) {
+                        break outer;
+                    }
+                }
             }
             LOG.info("======  Waiting for tracing updates to be propagated ========");
             Thread.sleep(1000);
             retries++;
         }
-
-        assertTrue("Didn't find the parallel scanner in the tracing", tracingComplete);
+        return found;
     }
 
+    private abstract class TraceChecker {
+        public boolean foundTrace(TraceHolder currentTrace) {
+            return false;
+        }
+
+        public boolean foundTrace(TraceHolder currentTrace, SpanInfo currentSpan) {
+            return false;
+        }
+    }
+    
     private static class CountDownConnection extends DelegatingConnection {
         private CountDownLatch commit;
 
