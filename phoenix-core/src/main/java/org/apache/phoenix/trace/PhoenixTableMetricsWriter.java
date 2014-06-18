@@ -199,6 +199,8 @@ public class PhoenixTableMetricsWriter implements MetricsWriter {
                 keys.add(HOSTNAME.columnName);
                 variableValues.add(tag.value());
                 values.add(VARIABLE_VALUE);
+            } else if (tag.name().equals("Context")) {
+                // ignored
             } else {
                 LOG.error("Got an unexpected tag: " + tag);
             }

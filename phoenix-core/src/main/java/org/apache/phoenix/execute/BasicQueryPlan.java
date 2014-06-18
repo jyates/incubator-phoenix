@@ -170,7 +170,7 @@ public abstract class BasicQueryPlan implements QueryPlan {
         TraceScope scope =
                 Tracing.startNewSpan(context.getConnection(), "Creating basic query for "
                         + this.statement);
-        return (scope.getSpan() != null) ? iterator : new TracingIterator(scope, iterator);
+        return (scope.getSpan() != null) ? new TracingIterator(scope, iterator) : iterator;
     }
 
     abstract protected ResultIterator newIterator() throws SQLException;
