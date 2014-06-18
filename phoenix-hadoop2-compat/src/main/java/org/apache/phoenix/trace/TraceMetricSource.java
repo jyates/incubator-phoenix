@@ -80,7 +80,7 @@ import org.cloudera.htrace.impl.MilliSpan;
  * that starts to get complicated fast (its not as easy as it sounds) so we use metrics2 to abstract
  * out that pipeline and also provides us flexibility to dump metrics to other sources.
  * <p>
- * Right now, this is just a first cut implementation - we do excessive locking for correctness,
+ * This is a somewhat rough implementation - we do excessive locking for correctness,
  * rather than trying to make it fast, for the moment.
  */
 public class TraceMetricSource implements PhoenixSpanReceiver, MetricsSource {
