@@ -22,7 +22,7 @@ import org.apache.phoenix.metrics.MetricsWriter;
 /**
  * Marker interface for a MetricsWriter that can be registered to the current metrics system. The
  * writer should convert from the metrics information it receives from the metrics system to Phoenix
- * records that the MetricsWriter can read (and subseqently write).
+ * records that the MetricsWriter can read (and subsequently write).
  */
 public interface TestableMetricsWriter {
 

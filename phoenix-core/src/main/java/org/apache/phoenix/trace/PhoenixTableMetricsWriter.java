@@ -144,6 +144,12 @@ public class PhoenixTableMetricsWriter implements MetricsWriter {
      */
     @Override
     public void flush() {
+        try {
+            this.conn.commit();
+            this.conn.rollback();
+        } catch (SQLException e) {
+            LOG.error("Failed to commit changes to table", e);
+        }
     }
 
     /**
@@ -224,9 +230,6 @@ public class PhoenixTableMetricsWriter implements MetricsWriter {
                 ps.setString(index++, tag);
             }
             ps.execute();
-            // commit right away - metrics are async already, so there is really no effect on the
-            // system
-            conn.commit();
         } catch (SQLException e) {
             LOG.error("Could not write metric: \n" + record + " to prepared statement:\n" + stmt, e);
         }
@@ -246,5 +249,9 @@ public class PhoenixTableMetricsWriter implements MetricsWriter {
         String val = tag.description() + " - " + tag.value();
         values.add(VARIABLE_VALUE);
         variableValues.add(val);
+    }
+
+    public void clearForTesting() throws SQLException {
+        this.conn.rollback();
     }
 }

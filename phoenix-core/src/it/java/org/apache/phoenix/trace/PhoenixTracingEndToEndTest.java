@@ -17,20 +17,17 @@
  */
 package org.apache.phoenix.trace;
 
-import static org.apache.phoenix.util.TestUtil.TEST_PROPERTIES;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
-import java.util.Properties;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -60,77 +57,41 @@ public class PhoenixTracingEndToEndTest extends BaseTracingTestIT {
     private final String table = "ENABLED_FOR_LOGGING";
     private final String index = "ENABALED_FOR_LOGGING_INDEX";
 
-    private static ListenableConnection LISTENABLE;
+    private static DisableableMetricsWriter sink;
 
     @BeforeClass
     public static void setupMetrics() throws Exception {
-        Connection conn = getTracingConnection();
-        LISTENABLE = new ListenableConnection(conn);
+        PhoenixTableMetricsWriter pWriter = new PhoenixTableMetricsWriter();
+        Connection conn = getConnectionWithoutTracing();
+        pWriter.initForTesting(conn);
+        sink = new DisableableMetricsWriter(pWriter);
 
-        PhoenixTableMetricsWriter sink = new PhoenixTableMetricsWriter();
-        sink.initForTesting(LISTENABLE);
         TracingTestCompat.registerSink(sink);
     }
 
     @After
     public void cleanup() {
-        LISTENABLE.clearListeners();
+        sink.disable();
+        sink.clear();
+        sink.enable();
+
+        // LISTENABLE.clearListeners();
     }
 
-    private static void waitForCommit(CountDownLatch latch) {
-        LISTENABLE.addListener(new LatchedCommitListener(latch));
+    private static void waitForCommit(CountDownLatch latch) throws SQLException {
+        Connection conn = new CountDownConnection(getConnectionWithoutTracing(), latch);
+        replaceWriterConnection(conn);
     }
 
-    private static class ListenableConnection extends DelegatingConnection {
-        List<CommitListener> listeners = new ArrayList<CommitListener>();
+    private static void replaceWriterConnection(Connection conn) throws SQLException {
+        // disable the writer
+        sink.disable();
 
-        public ListenableConnection(Connection delegate) {
-            super(delegate);
-        }
+        // swap the connection for one that listens
+        sink.getDelegate().initForTesting(conn);
 
-        @Override
-        public void commit() throws SQLException {
-            super.commit();
-            synchronized (listeners) {
-                for (CommitListener listener : listeners) {
-                    listener.commit();
-                }
-            }
-        }
-
-        public void addListener(CommitListener listener) {
-            synchronized (listeners) {
-                this.listeners.add(listener);
-            }
-        }
-
-        public void clearListeners() {
-            synchronized (listeners) {
-                this.listeners.clear();
-            }
-        }
-
-        public void removeListener(CommitListener listener) {
-            synchronized (listeners) {
-                listeners.remove(listener);
-            }
-        }
-    }
-
-    interface CommitListener {
-        public void commit();
-    }
-
-    static class LatchedCommitListener implements CommitListener {
-        private CountDownLatch latch;
-
-        public LatchedCommitListener(CountDownLatch latch) {
-            this.latch = latch;
-        }
-
-        public void commit() {
-            this.latch.countDown();
-        }
+        // enable the writer
+        sink.enable();
     }
 
     /**
@@ -265,7 +226,6 @@ public class PhoenixTracingEndToEndTest extends BaseTracingTestIT {
         });
 
         assertTrue("Never found indexing updates", indexingCompleted);
-        // conn.close();
     }
 
     private void createTestTable(Connection conn, boolean withIndex) throws SQLException {
@@ -288,20 +248,16 @@ public class PhoenixTracingEndToEndTest extends BaseTracingTestIT {
     /**
      * Updates to the will create traces, which then get logged to the tracing table. However, that
      * write to the tracing table also creates stats, which then get logged. However, we end up not
-     * seeing a parentid for the span that has the info about updating the stats table.
+     * seeing a parent-id for the span that has the info about updating the stats table.
      * @throws Exception
      */
     @Test
     public void testCorrectTracingForTracingStats() throws Exception {
-        PhoenixTableMetricsWriter sink = new PhoenixTableMetricsWriter();
-        Connection traceable = getTracingConnection();
+        // need to replace the connection with one that can trace and counted
         final CountDownLatch updated = new CountDownLatch(3);
-
-        // connection that we can both count and trace
-        Connection countable = new CountDownConnection(traceable, updated);
-        sink.initForTesting(countable);
-
-        TracingTestCompat.registerSink(sink);
+        Connection traceable = getTracingConnection();
+        Connection conn = new CountDownConnection(traceable, updated);
+        replaceWriterConnection(conn);
 
         // trace the setup of the table
         createTestTable(traceable, false);
@@ -344,20 +300,13 @@ public class PhoenixTracingEndToEndTest extends BaseTracingTestIT {
 
     @Test
     public void testScanTracing() throws Exception {
-        // setup the sink
-        PhoenixTableMetricsWriter sink = new PhoenixTableMetricsWriter();
-
         // separate connections to minimize amount of traces that are generated
         Connection traceable = getTracingConnection();
-        Properties props = new Properties(TEST_PROPERTIES);
-        Connection conn = DriverManager.getConnection(getUrl(), props);
+        Connection conn = getConnectionWithoutTracing();
 
         // one call for client side, one call for server side
         CountDownLatch updated = new CountDownLatch(2);
-        Connection countable = new CountDownConnection(conn, updated);
-        sink.initForTesting(countable);
-
-        TracingTestCompat.registerSink(sink);
+        waitForCommit(updated);
 
         // create a dummy table
         createTestTable(conn, false);
@@ -402,20 +351,13 @@ public class PhoenixTracingEndToEndTest extends BaseTracingTestIT {
 
     @Test
     public void testScanTracingOnServer() throws Exception {
-        // setup the sink
-        PhoenixTableMetricsWriter sink = new PhoenixTableMetricsWriter();
-
         // separate connections to minimize amount of traces that are generated
         Connection traceable = getTracingConnection();
-        Properties props = new Properties(TEST_PROPERTIES);
-        Connection conn = DriverManager.getConnection(getUrl(), props);
+        Connection conn = getConnectionWithoutTracing();
 
         // one call for client side, one call for server side
         CountDownLatch updated = new CountDownLatch(2);
-        Connection countable = new CountDownConnection(conn, updated);
-        sink.initForTesting(countable);
-
-        TracingTestCompat.registerSink(sink);
+        waitForCommit(updated);
 
         // create a dummy table
         createTestTable(conn, false);
