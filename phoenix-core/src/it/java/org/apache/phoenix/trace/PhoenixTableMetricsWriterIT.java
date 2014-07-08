@@ -37,7 +37,7 @@ import org.junit.Test;
 /**
  * Test that the logging sink stores the expected metrics/stats
  */
-public class PhoenixTableMetricsWriterTest extends BaseTracingTestIT {
+public class PhoenixTableMetricsWriterIT extends BaseTracingTestIT {
 
     /**
      * IT should create the target table if it hasn't been created yet, but not fail if the table

@@ -47,9 +47,9 @@ import org.junit.Test;
 /**
  * Test that the logging sink stores the expected metrics/stats
  */
-public class PhoenixTracingEndToEndTest extends BaseTracingTestIT {
+public class PhoenixTracingEndToEndIT extends BaseTracingTestIT {
 
-    private static final Log LOG = LogFactory.getLog(PhoenixTracingEndToEndTest.class);
+    private static final Log LOG = LogFactory.getLog(PhoenixTracingEndToEndIT.class);
     private static final int MAX_RETRIES = 10;
     private final String table = "ENABLED_FOR_LOGGING";
     private final String index = "ENABALED_FOR_LOGGING_INDEX";
