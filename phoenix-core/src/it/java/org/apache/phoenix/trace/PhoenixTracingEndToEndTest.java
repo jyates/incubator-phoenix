@@ -18,16 +18,13 @@
 package org.apache.phoenix.trace;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.util.ArrayList;
 import java.util.Collection;
-import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -243,59 +240,6 @@ public class PhoenixTracingEndToEndTest extends BaseTracingTestIT {
         ddl = "CREATE INDEX IF NOT EXISTS " + index + " on " + table + " (c1)";
         conn.createStatement().execute(ddl);
         conn.commit();
-    }
-
-    /**
-     * Updates to the will create traces, which then get logged to the tracing table. However, that
-     * write to the tracing table also creates stats, which then get logged. However, we end up not
-     * seeing a parent-id for the span that has the info about updating the stats table.
-     * @throws Exception
-     */
-    @Test
-    public void testCorrectTracingForTracingStats() throws Exception {
-        // need to replace the connection with one that can trace and counted
-        final CountDownLatch updated = new CountDownLatch(3);
-        Connection traceable = getTracingConnection();
-        Connection conn = new CountDownConnection(traceable, updated);
-        replaceWriterConnection(conn);
-
-        // trace the setup of the table
-        createTestTable(traceable, false);
-
-        LOG.debug("Doing dummy the writes to the tracked table");
-        String insert = "UPSERT INTO " + table + " VALUES (?, ?)";
-        PreparedStatement stmt = traceable.prepareStatement(insert);
-        stmt.setString(1, "key1");
-        stmt.setLong(2, 1);
-        stmt.execute();
-        stmt.setString(1, "key2");
-        stmt.setLong(2, 2);
-        stmt.execute();
-        traceable.commit();
-
-        // wait for all the commits to take place
-        updated.await();
-
-        boolean traceLoggingCompleted =
-                checkStoredTraces(getConnectionWithoutTracing(), new TraceChecker() {
-
-                    @Override
-                    public boolean foundTrace(TraceHolder currentTrace, SpanInfo currentSpan) {
-                        boolean found =
-                                currentSpan.description
-                                        .contains(TracingCompat.DEFAULT_STATS_TABLE_NAME);
-                        if (!found) {
-                            return false;
-                        }
-                        assertNotNull(
-                            "No parent span set for the trace for stats table update. Current trace: "
-                                    + currentTrace + "\n==== Span:" + currentSpan,
-                            currentSpan.parent);
-                        return found;
-                    }
-                });
-
-        assertTrue("Never found trace-logging updates", traceLoggingCompleted);
     }
 
     @Test
