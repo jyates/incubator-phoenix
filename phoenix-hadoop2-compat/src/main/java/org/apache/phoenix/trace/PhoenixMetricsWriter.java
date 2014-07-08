@@ -40,7 +40,10 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Iterators;
 
 /**
- * Write metrics to a phoenix table
+ * Translate metrics from a Hadoop2 metrics2 metric to a generic PhoenixMetric that a
+ * {@link MetricsWriter} can then write out.
+ * <p>
+ * This class becomes unnecessary once we drop Hadoop1 support.
  */
 public class PhoenixMetricsWriter implements MetricsSink, TestableMetricsWriter {
 
