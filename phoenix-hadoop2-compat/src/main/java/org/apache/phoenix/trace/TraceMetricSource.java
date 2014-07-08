@@ -137,9 +137,8 @@ public class TraceMetricSource implements PhoenixSpanReceiver, MetricsSource {
   public void getMetrics(MetricsCollector collector, boolean all) {
     synchronized (this) {
       for (Metric span : spans) {
-        MetricsRecordBuilder builder =
-            collector.addRecord(new MetricsInfoImpl(TracingCompat.METRIC_SOURCE_KEY + span.id,
-                span.desc));
+        MetricsRecordBuilder builder = collector.addRecord(new MetricsInfoImpl(TracingCompat
+            .getTraceMetricName(span.id), span.desc));
         builder.setContext(TracingCompat.METRICS_CONTEXT);
         for (Pair<MetricsInfo, Long> metric : span.counters) {
           builder.addCounter(metric.getFirst(), metric.getSecond());

@@ -363,7 +363,10 @@ public class TraceReader {
             }
             sb.append("\n");
             return sb.toString();
+        }
 
+        public long getParentIdForTesting() {
+            return parentId;
         }
     }
 }

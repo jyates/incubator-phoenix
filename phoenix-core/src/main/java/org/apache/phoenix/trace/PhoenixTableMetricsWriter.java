@@ -139,9 +139,6 @@ public class PhoenixTableMetricsWriter implements MetricsWriter {
         this.table = table;
     }
 
-    /**
-     * Noop
-     */
     @Override
     public void flush() {
         try {

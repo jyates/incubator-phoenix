@@ -76,4 +76,19 @@ public class TracingCompat {
         }
         return null;
     }
+
+    /**
+     * @see #getTraceMetricName(String)
+     */
+    public static final String getTraceMetricName(long traceId) {
+        return getTraceMetricName(Long.toString(traceId));
+    }
+
+    /**
+     * @param traceId unique id of the trace
+     * @return the name of the metric record that should be generated for a given trace
+     */
+    public static final String getTraceMetricName(String traceId) {
+        return METRIC_SOURCE_KEY + traceId;
+    }
 }

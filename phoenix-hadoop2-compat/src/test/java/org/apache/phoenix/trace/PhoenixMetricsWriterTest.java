@@ -57,8 +57,8 @@ public class PhoenixMetricsWriterTest {
 
     // create a simple metrics record
     final long traceid = 987654;
-    MetricsInfo info = new ExposedMetricsInfoImpl(TracingCompat.METRIC_SOURCE_KEY,
-        Long.toString(traceid));
+    MetricsInfo info = new ExposedMetricsInfoImpl(TracingCompat.getTraceMetricName(traceid),
+        "Some generic trace");
     // setup some metrics for the span
     long spanid = 10;
     AbstractMetric span = new ExposedMetricCounterLong(new ExposedMetricsInfoImpl(
@@ -93,8 +93,8 @@ public class PhoenixMetricsWriterTest {
       public Void answer(InvocationOnMock invocation) throws Throwable {
         PhoenixMetricsRecord record = (PhoenixMetricsRecord) invocation.getArguments()[0];
         //validate that we got the right fields in the record
-        assertEquals("phoenix.", record.name());
-        assertEquals(Long.toString(traceid), record.description());
+        assertEquals("phoenix.987654", record.name());
+        assertEquals("Some generic trace", record.description());
         int count = 0;
         for (PhoenixAbstractMetric metric : record.metrics()) {
           count++;
