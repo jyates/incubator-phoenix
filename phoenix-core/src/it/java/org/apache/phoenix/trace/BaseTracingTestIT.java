@@ -24,7 +24,12 @@ import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.util.Properties;
 
+import org.apache.hadoop.metrics2.MetricsRecord;
 import org.apache.phoenix.end2end.BaseHBaseManagedTimeIT;
+import org.apache.phoenix.metrics.MetricInfo;
+import org.apache.phoenix.metrics.PhoenixAbstractMetric;
+import org.apache.phoenix.metrics.PhoenixMetricTag;
+import org.apache.phoenix.metrics.PhoenixMetricsRecord;
 import org.apache.phoenix.trace.util.Tracing;
 import org.apache.phoenix.trace.util.Tracing.Frequency;
 
@@ -51,5 +56,36 @@ public class BaseTracingTestIT extends BaseHBaseManagedTimeIT {
             Tracing.Frequency frequency) throws SQLException {
         Tracing.setSampling(props, frequency);
         return DriverManager.getConnection(getUrl(), props);
+    }
+
+    public static PhoenixMetricsRecord createRecord(long traceid, long parentid, long spanid,
+            String desc, long startTime, long endTime, String hostname, String... tags) {
+        PhoenixMetricRecordImpl record =
+                new PhoenixMetricRecordImpl(TracingCompat.getTraceMetricName(traceid), desc);
+        PhoenixAbstractMetric span = new PhoenixMetricImpl(MetricInfo.SPAN.traceName, spanid);
+        record.addMetric(span);
+
+        PhoenixAbstractMetric parent = new PhoenixMetricImpl(MetricInfo.PARENT.traceName, parentid);
+        record.addMetric(parent);
+
+        PhoenixAbstractMetric start = new PhoenixMetricImpl(MetricInfo.START.traceName, startTime);
+        record.addMetric(start);
+
+        PhoenixAbstractMetric end = new PhoenixMetricImpl(MetricInfo.END.traceName, endTime);
+        record.addMetric(end);
+
+        int tagCount = 0;
+        for (String annotation : tags) {
+            PhoenixMetricTag tag =
+                    new PhoenixTagImpl(MetricInfo.ANNOTATION.traceName,
+                            Integer.toString(tagCount++), annotation);
+            record.addTag(tag);
+        }
+        String hostnameValue = "host-name.value";
+        PhoenixMetricTag hostnameTag =
+                new PhoenixTagImpl(MetricInfo.HOSTNAME.traceName, "", hostnameValue);
+        record.addTag(hostnameTag);
+
+        return record;
     }
 }

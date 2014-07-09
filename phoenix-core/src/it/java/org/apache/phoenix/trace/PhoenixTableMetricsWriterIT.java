@@ -21,15 +21,9 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
 
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.util.Collection;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.hbase.TableExistsException;
-import org.apache.phoenix.metrics.MetricInfo;
-import org.apache.phoenix.metrics.PhoenixAbstractMetric;
-import org.apache.phoenix.metrics.PhoenixMetricTag;
+import org.apache.phoenix.metrics.PhoenixMetricsRecord;
 import org.apache.phoenix.trace.TraceReader.SpanInfo;
 import org.apache.phoenix.trace.TraceReader.TraceHolder;
 import org.junit.Test;
@@ -83,33 +77,15 @@ public class PhoenixTableMetricsWriterIT extends BaseTracingTestIT {
         // create a simple metrics record
         long traceid = 987654;
         String description = "Some generic trace";
-        PhoenixMetricRecordImpl record =
-                new PhoenixMetricRecordImpl(TracingCompat.getTraceMetricName(traceid),
-                        description);
-        // setup some metrics for the span
         long spanid = 10;
-        PhoenixAbstractMetric span = new PhoenixMetricImpl(MetricInfo.SPAN.traceName, spanid);
-        record.addMetric(span);
         long parentid = 11;
-        PhoenixAbstractMetric parent = new PhoenixMetricImpl(MetricInfo.PARENT.traceName, parentid);
-        record.addMetric(parent);
         long startTime = 12;
-        PhoenixAbstractMetric start = new PhoenixMetricImpl(MetricInfo.START.traceName, startTime);
-        record.addMetric(start);
         long endTime = 13;
-        PhoenixAbstractMetric end = new PhoenixMetricImpl(MetricInfo.END.traceName, endTime);
-        record.addMetric(end);
-
-        // create a few tags as well
         String annotation = "test annotation for a span";
-        PhoenixMetricTag tag = new PhoenixTagImpl(MetricInfo.ANNOTATION.traceName, "0",
-                        annotation);
-        record.addTag(tag);
         String hostnameValue = "host-name.value";
-        PhoenixMetricTag hostname =
-                new PhoenixTagImpl(MetricInfo.HOSTNAME.traceName, "",
-                        hostnameValue);
-        record.addTag(hostname);
+        PhoenixMetricsRecord record =
+                createRecord(traceid, parentid, spanid, description, startTime, endTime,
+                    hostnameValue, annotation);
 
         // actually write the record to the table
         sink.addMetrics(record);
