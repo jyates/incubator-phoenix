@@ -34,11 +34,16 @@ import java.sql.Statement;
 import java.sql.Struct;
 import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.Executor;
+
+import org.apache.phoenix.jdbc.Jdbc7Shim;
 
 /**
  * Simple {@link Connection} that just delegates to an underlying {@link Connection}.
+ * @param <D> delegate type that is both a {@link Connection} and a {@link Jdbc7Shim#Connection}
  */
-public class DelegatingConnection implements Connection {
+public class DelegatingConnection<D extends Connection & Jdbc7Shim.Connection> implements
+        Connection, Jdbc7Shim.Connection {
 
   @Override
   public <T> T unwrap(Class<T> iface) throws SQLException {
@@ -290,9 +295,34 @@ public class DelegatingConnection implements Connection {
     return conn.createStruct(typeName, attributes);
   }
 
-  private Connection conn;
+    private D conn;
 
-  public DelegatingConnection(Connection conn) {
+    public DelegatingConnection(D conn) {
     this.conn = conn;
   }
+
+    @Override
+    public void setSchema(String schema) throws SQLException {
+        conn.setSchema(schema);
+    }
+
+    @Override
+    public String getSchema() throws SQLException {
+        return conn.getSchema();
+    }
+
+    @Override
+    public void abort(Executor executor) throws SQLException {
+        conn.abort(executor);
+    }
+
+    @Override
+    public void setNetworkTimeout(Executor executor, int milliseconds) throws SQLException {
+        conn.setNetworkTimeout(executor, milliseconds);
+    }
+
+    @Override
+    public int getNetworkTimeout() throws SQLException {
+        return conn.getNetworkTimeout();
+    }
 }
